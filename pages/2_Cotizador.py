@@ -2,6 +2,30 @@ import streamlit as st
 import pandas as pd
 from graph_utils import grafica_aportacion_precio, grafica_aportacion_utilidad
 from pdf_generator_reportlab import generar_pdf_horizontal
+import numpy as np
+import pandas as pd
+
+def recalcular_cotizacion(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    # Asegurar numéricos
+    for c in ["PRECIO_LISTA", "DESC_FAB_PCT", "MARGEN_PCT", "COSTO", "PRECIO_VENTA"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+
+    # 1) Costo = precio_lista * (1 - desc_fab)
+    # desc_fab_pct viene como 30 para 30%
+    df["COSTO"] = df["PRECIO_LISTA"] * (1.0 - (df["DESC_FAB_PCT"] / 100.0))
+
+    # 2) Precio venta = costo / (1 - margen)
+    denom = 1.0 - (df["MARGEN_PCT"] / 100.0)
+    denom = denom.replace(0, np.nan)  # evita división entre cero
+    df["PRECIO_VENTA"] = (df["COSTO"] / denom).fillna(0.0)
+
+    # 3) Utilidad bruta = precio_venta - costo
+    df["UTILIDAD_BRUTA"] = df["PRECIO_VENTA"] - df["COSTO"]
+
+    return df
 
 st.title("Cotizador Comercial")
 
@@ -18,7 +42,10 @@ if "lineas" not in st.session_state:
         columns=[
             "SKU",
             "DESCRIPCION",
+            "PRECIO_LISTA",
+            "DESC_FAB_PCT",
             "COSTO",
+            "MARGEN_PCT",
             "PRECIO_VENTA",
             "UTILIDAD_BRUTA"
         ]
@@ -62,11 +89,16 @@ if len(df_final) == 1:
     st.write(f"**Precio lista:** ${fila[COL_PRECIO]:,.2f}")
 
     if st.button("Agregar a cotización"):
+        precio_lista = float(fila[COL_PRECIO])
+
         nueva = {
-            "SKU": fila[COL_PARTE],
-            "DESCRIPCION": fila[COL_MODELO],
-            "COSTO": fila[COL_PRECIO],  # luego se ajusta por descuento fabricante
-            "PRECIO_VENTA": fila[COL_PRECIO],
+            "SKU": str(fila[COL_PARTE]),
+            "DESCRIPCION": str(fila[COL_MODELO]),
+            "PRECIO_LISTA": precio_lista,
+            "DESC_FAB_PCT": 30.0,
+            "MARGEN_PCT": 10.0,
+            "COSTO": 0.0,
+            "PRECIO_VENTA": 0.0,
             "UTILIDAD_BRUTA": 0.0
         }
 
@@ -74,6 +106,8 @@ if len(df_final) == 1:
             [st.session_state.lineas, pd.DataFrame([nueva])],
             ignore_index=True
         )
+
+        st.session_state.lineas = recalcular_cotizacion(st.session_state.lineas)
 
 # -------- AGREGAR LÍNEA --------
 st.subheader("Agregar línea manual / servicio")
@@ -101,28 +135,28 @@ with st.form("add_line"):
 # -------- TABLA EDITABLE --------
 st.subheader("Detalle de Cotización")
 
-df = st.data_editor(
+df_edit = st.data_editor(
     st.session_state.lineas,
     use_container_width=True,
     num_rows="dynamic"
 )
+df_calc = recalcular_cotizacion(df_edit)
 
-# Recalcular utilidad por edición
-df["UTILIDAD_BRUTA"] = df["PRECIO_VENTA"] - df["COSTO"]
-st.session_state.lineas = df
+st.session_state.lineas = df_calc
+st.dataframe(df_calc, use_container_width=True)
 
 # -------- KPIs --------
-total_venta = df["PRECIO_VENTA"].sum()
-total_costo = df["COSTO"].sum()
-total_utilidad = df["UTILIDAD_BRUTA"].sum()
+total_venta = st.session_state.lineas["PRECIO_VENTA"].sum()
+total_costo = st.session_state.lineas["COSTO"].sum()
+total_utilidad = st.session_state.lineas["UTILIDAD_BRUTA"].sum()
 
-margen_venta = total_utilidad / total_venta if total_venta > 0 else 0
-margen_costo = total_utilidad / total_costo if total_costo > 0 else 0
+margen_sobre_venta = (total_utilidad / total_venta) if total_venta > 0 else 0.0
+markup_sobre_costo = (total_utilidad / total_costo) if total_costo > 0 else 0.0
 
 c1, c2, c3 = st.columns(3)
 c1.metric("Venta Total", f"${total_venta:,.2f}")
-c2.metric("Margen sobre Venta", f"{margen_venta*100:.2f}%")
-c3.metric("Markup (sobre costo)", f"{margen_costo*100:.2f}%")
+c2.metric("Margen sobre Venta", f"{margen_sobre_venta*100:.2f}%")
+c3.metric("Markup (sobre costo)", f"{markup_sobre_costo*100:.2f}%")
 
 # -------- GRÁFICAS --------
 st.subheader("Aportaciones")
