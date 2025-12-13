@@ -8,21 +8,34 @@ import pandas as pd
 def recalcular_cotizacion(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # Asegurar numéricos
-    for c in ["PRECIO_LISTA", "DESC_FAB_PCT", "MARGEN_PCT", "COSTO", "PRECIO_VENTA"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    # --- Asegurar columnas base ---
+    columnas_base = {
+        "PRECIO_LISTA": 0.0,
+        "DESC_FAB_PCT": 0.0,
+        "MARGEN_PCT": 0.0,
+        "COSTO": 0.0,
+        "PRECIO_VENTA": 0.0,
+        "UTILIDAD_BRUTA": 0.0,
+    }
 
-    # 1) Costo = precio_lista * (1 - desc_fab)
-    # desc_fab_pct viene como 30 para 30%
-    df["COSTO"] = df["PRECIO_LISTA"] * (1.0 - (df["DESC_FAB_PCT"] / 100.0))
+    for col, default in columnas_base.items():
+        if col not in df.columns:
+            df[col] = default
 
-    # 2) Precio venta = costo / (1 - margen)
+    # --- Forzar numéricos ---
+    for col in columnas_base.keys():
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    # --- Cálculos ---
+    # 1) Costo
+    df["COSTO"] = df["PRECIO_LISTA"] * (1.0 - df["DESC_FAB_PCT"] / 100.0)
+
+    # 2) Precio de venta (margen sobre venta)
     denom = 1.0 - (df["MARGEN_PCT"] / 100.0)
-    denom = denom.replace(0, np.nan)  # evita división entre cero
+    denom = denom.replace(0, np.nan)
     df["PRECIO_VENTA"] = (df["COSTO"] / denom).fillna(0.0)
 
-    # 3) Utilidad bruta = precio_venta - costo
+    # 3) Utilidad bruta
     df["UTILIDAD_BRUTA"] = df["PRECIO_VENTA"] - df["COSTO"]
 
     return df
