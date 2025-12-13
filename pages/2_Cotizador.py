@@ -174,8 +174,8 @@ c3.metric("Markup (sobre costo)", f"{markup_sobre_costo*100:.2f}%")
 # -------- GRÁFICAS --------
 st.subheader("Aportaciones")
 
-img_precio = grafica_aportacion_precio(df)
-img_utilidad = grafica_aportacion_utilidad(df)
+img_precio = grafica_aportacion_precio(st.session_state.lineas)
+img_utilidad = grafica_aportacion_utilidad(st.session_state.lineas)
 
 st.image(img_precio, caption="Aportación por Precio")
 st.image(img_utilidad, caption="Aportación por Utilidad")
@@ -189,7 +189,7 @@ correo = st.text_input("Correo")
 
 if st.button("Generar PDF"):
     pdf = generar_pdf_horizontal(
-        df=df,
+        df=st.session_state.lineas,
         cliente=cliente,
         contacto=contacto,
         correo=correo,
