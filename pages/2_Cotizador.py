@@ -24,17 +24,56 @@ if "lineas" not in st.session_state:
         ]
     )
 
-# -------- BUSCADOR --------
-query = st.text_input("Buscar por SKU o DESCRIPCIÓN")
+st.subheader("Seleccionar producto")
 
-if query:
-    coincidencias = catalogo[
-        catalogo.astype(str).apply(
-            lambda row: row.str.contains(query, case=False, na=False).any(),
-            axis=1
+# Columnas reales del Excel
+COL_CLASE = "CLASE"
+COL_SUBCLASE = "SUBCLASE"
+COL_PARTE = "NO. DE PARTE"
+COL_MODELO = "MODELO"
+COL_DESC = "DESCRIPCIÓN"
+COL_PRECIO = "PRECIO\nMXN"
+
+# -------- Dropdown 1: CLASE --------
+opciones_clase = sorted(catalogo[COL_CLASE].dropna().unique())
+sel_clase = st.selectbox("Clase", opciones_clase)
+
+df_clase = catalogo[catalogo[COL_CLASE] == sel_clase]
+
+# -------- Dropdown 2: SUBCLASE --------
+opciones_subclase = sorted(df_clase[COL_SUBCLASE].dropna().unique())
+sel_subclase = st.selectbox("Subclase", opciones_subclase)
+
+df_subclase = df_clase[df_clase[COL_SUBCLASE] == sel_subclase]
+
+# -------- Dropdown 3: NO. DE PARTE --------
+opciones_parte = sorted(df_subclase[COL_PARTE].dropna().unique())
+sel_parte = st.selectbox("No. de Parte", opciones_parte)
+
+df_final = df_subclase[df_subclase[COL_PARTE] == sel_parte]
+
+# -------- Mostrar producto seleccionado --------
+if len(df_final) == 1:
+    fila = df_final.iloc[0]
+
+    st.markdown("### Producto seleccionado")
+    st.write(f"**Modelo:** {fila[COL_MODELO]}")
+    st.write(f"**Descripción:** {fila[COL_DESC]}")
+    st.write(f"**Precio lista:** ${fila[COL_PRECIO]:,.2f}")
+
+    if st.button("Agregar a cotización"):
+        nueva = {
+            "SKU": fila[COL_PARTE],
+            "DESCRIPCION": fila[COL_MODELO],
+            "COSTO": fila[COL_PRECIO],  # luego se ajusta por descuento fabricante
+            "PRECIO_VENTA": fila[COL_PRECIO],
+            "UTILIDAD_BRUTA": 0.0
+        }
+
+        st.session_state.lineas = pd.concat(
+            [st.session_state.lineas, pd.DataFrame([nueva])],
+            ignore_index=True
         )
-    ]
-    st.dataframe(coincidencias.head(10), use_container_width=True)
 
 # -------- AGREGAR LÍNEA --------
 st.subheader("Agregar línea manual / servicio")
