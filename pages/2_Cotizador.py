@@ -1,11 +1,15 @@
 import streamlit as st
 import pandas as pd
-from graph_utils import grafica_aportacion_precio, grafica_aportacion_utilidad
+from graph_utils import (
+    grafica_aportacion_precio, 
+    grafica_aportacion_utilidad,
+    grafica_pie_precio,
+    grafica_pie_utilidad
+)
 from pdf_generator_reportlab import generar_pdf_horizontal
 import numpy as np
-import pandas as pd
 
-def recalcular_cotizacion(df: pd.DataFrame) -> pd.DataFrame:
+def recalcular_cotizacion(df: pd.DataFrame, df_anterior: pd.DataFrame = None) -> pd.DataFrame:
     df = df.copy()
 
     # --- Asegurar columnas base ---
@@ -26,17 +30,43 @@ def recalcular_cotizacion(df: pd.DataFrame) -> pd.DataFrame:
     for col in columnas_base.keys():
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-    # --- Cálculos ---
-    # 1) Costo
-    df["COSTO"] = df["PRECIO_LISTA"] * (1.0 - df["DESC_FAB_PCT"] / 100.0)
-
-    # 2) Precio de venta (margen sobre venta)
-    denom = 1.0 - (df["MARGEN_PCT"] / 100.0)
-    denom = denom.replace(0, np.nan)
-    df["PRECIO_VENTA"] = (df["COSTO"] / denom).fillna(0.0)
-
-    # 3) Utilidad bruta
-    df["UTILIDAD_BRUTA"] = df["PRECIO_VENTA"] - df["COSTO"]
+    # --- Detectar qué cambió para calcular correctamente ---
+    for idx in df.index:
+        # Siempre recalcular COSTO desde PRECIO_LISTA y DESC_FAB_PCT
+        df.loc[idx, "COSTO"] = df.loc[idx, "PRECIO_LISTA"] * (1.0 - df.loc[idx, "DESC_FAB_PCT"] / 100.0)
+        
+        # Si hay df_anterior, detectar qué se modificó
+        if df_anterior is not None and idx in df_anterior.index:
+            precio_venta_cambio = df.loc[idx, "PRECIO_VENTA"] != df_anterior.loc[idx, "PRECIO_VENTA"]
+            margen_cambio = df.loc[idx, "MARGEN_PCT"] != df_anterior.loc[idx, "MARGEN_PCT"]
+            
+            # Si se modificó PRECIO_VENTA directamente, recalcular MARGEN_PCT
+            if precio_venta_cambio and not margen_cambio:
+                precio = df.loc[idx, "PRECIO_VENTA"]
+                costo = df.loc[idx, "COSTO"]
+                if precio > 0:
+                    df.loc[idx, "MARGEN_PCT"] = ((precio - costo) / precio) * 100
+            # Si se modificó MARGEN_PCT, recalcular PRECIO_VENTA
+            else:
+                margen = df.loc[idx, "MARGEN_PCT"]
+                costo = df.loc[idx, "COSTO"]
+                denom = 1.0 - (margen / 100.0)
+                if denom != 0:
+                    df.loc[idx, "PRECIO_VENTA"] = costo / denom
+                else:
+                    df.loc[idx, "PRECIO_VENTA"] = 0.0
+        else:
+            # Línea nueva o sin comparación: calcular desde margen
+            margen = df.loc[idx, "MARGEN_PCT"]
+            costo = df.loc[idx, "COSTO"]
+            denom = 1.0 - (margen / 100.0)
+            if denom != 0:
+                df.loc[idx, "PRECIO_VENTA"] = costo / denom
+            else:
+                df.loc[idx, "PRECIO_VENTA"] = 0.0
+        
+        # Siempre recalcular UTILIDAD_BRUTA
+        df.loc[idx, "UTILIDAD_BRUTA"] = df.loc[idx, "PRECIO_VENTA"] - df.loc[idx, "COSTO"]
 
     return df
 
@@ -151,12 +181,15 @@ st.subheader("Detalle de Cotización")
 df_edit = st.data_editor(
     st.session_state.lineas,
     use_container_width=True,
-    num_rows="dynamic"
+    num_rows="dynamic",
+    key="editor_lineas"
 )
-df_calc = recalcular_cotizacion(df_edit)
 
-st.session_state.lineas = df_calc
-st.dataframe(df_calc, use_container_width=True)
+# Recalcular solo si hubo cambios
+if not df_edit.equals(st.session_state.lineas):
+    df_calc = recalcular_cotizacion(df_edit, st.session_state.lineas)
+    st.session_state.lineas = df_calc
+    st.rerun()
 
 # -------- KPIs --------
 total_venta = st.session_state.lineas["PRECIO_VENTA"].sum()
@@ -176,9 +209,16 @@ st.subheader("Aportaciones")
 
 img_precio = grafica_aportacion_precio(st.session_state.lineas)
 img_utilidad = grafica_aportacion_utilidad(st.session_state.lineas)
+img_pie_precio = grafica_pie_precio(st.session_state.lineas)
+img_pie_utilidad = grafica_pie_utilidad(st.session_state.lineas)
 
-st.image(img_precio, caption="Aportación por Precio")
-st.image(img_utilidad, caption="Aportación por Utilidad")
+col1, col2 = st.columns(2)
+with col1:
+    st.image(img_precio, caption="Aportación por Precio")
+    st.image(img_pie_precio, caption="Distribución por Precio")
+with col2:
+    st.image(img_utilidad, caption="Aportación por Utilidad")
+    st.image(img_pie_utilidad, caption="Distribución por Utilidad")
 
 # -------- PDF --------
 st.subheader("Exportar Cotización")

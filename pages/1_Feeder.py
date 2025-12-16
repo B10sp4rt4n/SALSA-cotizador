@@ -7,8 +7,9 @@ st.title("Feeder de Lista de Precios")
 
 PRECIO_COL = "PRECIO_LISTA"
 
-archivo = st.file_uploader("Sube la lista de precios (Excel)", type=["xlsx"])
-nombre_lista = st.text_input("Nombre de la lista")
+# Inicializar listas guardadas
+if "listas_guardadas" not in st.session_state:
+    st.session_state.listas_guardadas = {}
 
 def _norm(s: str) -> str:
     s = str(s).strip()
@@ -33,6 +34,12 @@ PRICE_CANDIDATES = [
     "LIST_PRICE", "LISTPRICE", "MSRP", "PVP", "PRECIO PUBLICO"
 ]
 
+# --- CARGAR NUEVA LISTA ---
+st.subheader("📥 Cargar nueva lista")
+
+archivo = st.file_uploader("Sube la lista de precios (Excel)", type=["xlsx"])
+nombre_lista = st.text_input("Nombre de la lista")
+
 if archivo and nombre_lista:
     df = pd.read_excel(archivo)
 
@@ -51,14 +58,33 @@ if archivo and nombre_lista:
     # Si quieres estandarizar internamente:
     df["PRECIO_LISTA"] = df[precio_col_real]
 
-    # Sustituir catálogo completamente
+    # Guardar en el diccionario de listas
+    st.session_state.listas_guardadas[nombre_lista] = df.copy()
     st.session_state.catalogo = df.copy()
     st.session_state.lista_activa = nombre_lista
 
-    st.success(f"Lista '{nombre_lista}' cargada correctamente ({len(df)} productos).")
+    st.success(f"Lista '{nombre_lista}' cargada y guardada ({len(df)} productos).")
+
+# --- SELECCIONAR LISTA EXISTENTE ---
+if st.session_state.listas_guardadas:
+    st.subheader("📋 Seleccionar lista guardada")
+    
+    opciones_listas = list(st.session_state.listas_guardadas.keys())
+    lista_seleccionada = st.selectbox(
+        "Listas disponibles", 
+        opciones_listas,
+        index=opciones_listas.index(st.session_state.get("lista_activa")) 
+              if st.session_state.get("lista_activa") in opciones_listas else 0
+    )
+    
+    if st.button("Activar lista seleccionada"):
+        st.session_state.catalogo = st.session_state.listas_guardadas[lista_seleccionada].copy()
+        st.session_state.lista_activa = lista_seleccionada
+        st.success(f"Lista '{lista_seleccionada}' activada.")
+        st.rerun()
 
 if "catalogo" in st.session_state:
     st.info(
-        f"Lista activa: {st.session_state.get('lista_activa')} | "
+        f"📌 Lista activa: {st.session_state.get('lista_activa')} | "
         f"Productos: {len(st.session_state.catalogo)}"
     )
