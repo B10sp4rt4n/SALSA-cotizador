@@ -34,54 +34,64 @@ PRICE_CANDIDATES = [
     "LIST_PRICE", "LISTPRICE", "MSRP", "PVP", "PRECIO PUBLICO"
 ]
 
-# --- CARGAR NUEVA LISTA ---
-st.subheader("📥 Cargar nueva lista")
-
-archivo = st.file_uploader("Sube la lista de precios (Excel)", type=["xlsx"])
-nombre_lista = st.text_input("Nombre de la lista")
-
-if archivo and nombre_lista:
-    df = pd.read_excel(archivo)
-
-    precio_col_real = resolve_column(df, PRICE_CANDIDATES)
-
-    if not precio_col_real:
-        st.error(
-            "No encontré la columna de precio en tu Excel. "
-            "Columnas detectadas: " + ", ".join(map(str, df.columns))
-        )
-        st.stop()
-
-    df[precio_col_real] = pd.to_numeric(df[precio_col_real], errors="coerce")
-    df = df[df[precio_col_real].notna()].copy()
-
-    # Si quieres estandarizar internamente:
-    df["PRECIO_LISTA"] = df[precio_col_real]
-
-    # Guardar en el diccionario de listas
-    st.session_state.listas_guardadas[nombre_lista] = df.copy()
-    st.session_state.catalogo = df.copy()
-    st.session_state.lista_activa = nombre_lista
-
-    st.success(f"Lista '{nombre_lista}' cargada y guardada ({len(df)} productos).")
-
 # --- SELECCIONAR LISTA EXISTENTE ---
 if st.session_state.listas_guardadas:
-    st.subheader("📋 Seleccionar lista guardada")
+    st.subheader("📋 Lista de precios")
     
     opciones_listas = list(st.session_state.listas_guardadas.keys())
+    
+    # Determinar índice por defecto
+    default_idx = 0
+    if st.session_state.get("lista_activa") in opciones_listas:
+        default_idx = opciones_listas.index(st.session_state.get("lista_activa"))
+    
     lista_seleccionada = st.selectbox(
-        "Listas disponibles", 
+        "Selecciona la lista a usar", 
         opciones_listas,
-        index=opciones_listas.index(st.session_state.get("lista_activa")) 
-              if st.session_state.get("lista_activa") in opciones_listas else 0
+        index=default_idx,
+        key="selector_lista"
     )
     
-    if st.button("Activar lista seleccionada"):
+    # Activar automáticamente al cambiar la selección
+    if lista_seleccionada != st.session_state.get("lista_activa"):
         st.session_state.catalogo = st.session_state.listas_guardadas[lista_seleccionada].copy()
         st.session_state.lista_activa = lista_seleccionada
-        st.success(f"Lista '{lista_seleccionada}' activada.")
         st.rerun()
+    
+    st.divider()
+
+# --- CARGAR NUEVA LISTA ---
+with st.expander("📥 Cargar una nueva lista", expanded=not st.session_state.listas_guardadas):
+    archivo = st.file_uploader("Sube la lista de precios (Excel)", type=["xlsx"])
+    
+    if archivo:
+        nombre_lista = st.text_input("Nombre para esta nueva lista")
+        
+        if nombre_lista:
+            df = pd.read_excel(archivo)
+
+            precio_col_real = resolve_column(df, PRICE_CANDIDATES)
+
+            if not precio_col_real:
+                st.error(
+                    "No encontré la columna de precio en tu Excel. "
+                    "Columnas detectadas: " + ", ".join(map(str, df.columns))
+                )
+                st.stop()
+
+            df[precio_col_real] = pd.to_numeric(df[precio_col_real], errors="coerce")
+            df = df[df[precio_col_real].notna()].copy()
+
+            # Si quieres estandarizar internamente:
+            df["PRECIO_LISTA"] = df[precio_col_real]
+
+            # Guardar en el diccionario de listas
+            st.session_state.listas_guardadas[nombre_lista] = df.copy()
+            st.session_state.catalogo = df.copy()
+            st.session_state.lista_activa = nombre_lista
+
+            st.success(f"Lista '{nombre_lista}' cargada y guardada ({len(df)} productos).")
+            st.rerun()
 
 if "catalogo" in st.session_state:
     st.info(
